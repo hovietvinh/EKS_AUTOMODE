@@ -29,12 +29,12 @@
 #   repositories = var.repositories
 # }
 
-# module "acm" {
-#   source = "../../modules/acm"
-#   domain_name = var.domain_name
-#   zone_id = module.dns.zone_id
-#   sub_domains = var.sub_domains
-# }
+module "acm" {
+  source = "../../modules/acm"
+  domain_name = var.domain_name
+  zone_id = module.dns.zone_id
+  sub_domains = var.sub_domains
+}
 
 module "dns" {
   source = "../../modules/dns"
