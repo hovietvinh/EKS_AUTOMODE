@@ -13,5 +13,6 @@ spec:
     - {{ .Values.alb.certificateArn | quote }}
   tags:
     {{- range $k, $v := .Values.alb.tags }}
-    {{ $k }}: {{ $v | quote }}
+    - key: {{ $k | quote }}
+      value: {{ $v | quote }}
     {{- end }}
