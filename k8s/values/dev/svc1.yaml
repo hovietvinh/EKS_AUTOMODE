@@ -1,6 +1,6 @@
 nameOverride: svc1
 image:
-  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/svc1"
+  repository: "661487690146.dkr.ecr.ap-southeast-1.amazonaws.com/test-dev-svc1"
   tag: ""
 
 service:
