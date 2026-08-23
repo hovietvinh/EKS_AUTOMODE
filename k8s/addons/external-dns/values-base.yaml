@@ -6,6 +6,3 @@ sources:
 serviceAccount:
   create: true
   name: external-dns
-extraArgs:
-  - --aws-zone-type=public
-  - --ingress-class=alb  
