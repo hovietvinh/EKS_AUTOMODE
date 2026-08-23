@@ -4,7 +4,6 @@ metadata:
   name: {{ .Values.name | default "root-alb-ingress" }}
   namespace: {{ .Values.namespace }}
   annotations:
-    alb.ingress.kubernetes.io/group.name: {{ .Values.alb.groupName }}
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.alb.healthcheckPath | default "/healthz" }}
     alb.ingress.kubernetes.io/listen-ports: {{ .Values.alb.listenPorts | quote }}

@@ -4,6 +4,8 @@ metadata:
   name: {{ .Values.alb.ingressClassName | default "alb" }}
 spec:
   scheme: {{ .Values.alb.scheme | default "internet-facing" }}
+  group:
+    name: {{ .Values.alb.groupName }}
   subnets:
     ids:
       {{- range splitList "," .Values.alb.subnetIds }}
