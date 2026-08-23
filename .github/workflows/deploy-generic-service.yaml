@@ -94,9 +94,11 @@ jobs:
       DEPLOY_ENV: ${{ needs.resolve_env.outputs.environment }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-      ECR_REGISTRY_URL: ${{ vars.API_REGISTRY_URL }}
       AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
       NAMESPACE: ${{ vars.NAMESPACE }}
+      ECR_REGISTRY_URL: ${{ vars.ECR_REGISTRY_URL }}
+
+      ECR_REPOSITORY_NAME: ${{ vars[format('ECR_REPOSITORY_NAME_{0}', matrix.service)] }}
 
     steps:
       - name: Checkout
@@ -118,7 +120,7 @@ jobs:
       - name: Build, tag, and push image to Amazon ECR
         run: |
           IMAGE_TAG="${{ github.sha }}"
-          FULL_IMAGE_URI="${ECR_REGISTRY_URL}/${{ matrix.service }}:${IMAGE_TAG}"
+          FULL_IMAGE_URI="${ECR_REGISTRY_URL}/${ECR_REPOSITORY_NAME}:${IMAGE_TAG}"
           docker build -t "$FULL_IMAGE_URI" -f "./services/${{ matrix.service }}/Dockerfile" .
           docker push "$FULL_IMAGE_URI"
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
