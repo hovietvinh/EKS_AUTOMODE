@@ -1,5 +1,5 @@
 domainFilters:
-  - t
+  - common.dataassess.uk
 txtOwnerId: dev
 env:
   - name: AWS_DEFAULT_REGION
