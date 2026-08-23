@@ -4,3 +4,5 @@ txtOwnerId: dev
 env:
   - name: AWS_DEFAULT_REGION
     value: ap-southeast-1
+extraArgs:
+  - --zone-id-filter=${ZONE_ID}

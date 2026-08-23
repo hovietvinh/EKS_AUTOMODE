@@ -27,10 +27,21 @@ helm upgrade --install root-ingress ../k8s/addons/root-ingress \
 
 rm -f "$RENDERED_VALUES"
 
+# external dns
+if [ -z "$ZONE_ID" ]; then
+  echo "ZONE_ID is not set, aborting"
+  exit 1
+fi
+
+RENDERED_VALUES_DNS=$(mktemp)
+envsubst '${ZONE_ID}' < ../k8s/addons/external-dns/values-${ENV}.yaml > "$RENDERED_VALUES_DNS"
+
 helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/
 helm repo update
 
 helm upgrade --install external-dns external-dns/external-dns \
   -n external-dns --create-namespace \
   -f ../k8s/addons/external-dns/values-base.yaml \
-  -f ../k8s/addons/external-dns/values-${ENV}.yaml
+  -f "$RENDERED_VALUES_DNS"
+
+rm -f "$RENDERED_VALUES_DNS"

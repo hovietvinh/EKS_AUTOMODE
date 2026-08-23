@@ -13,3 +13,7 @@ output "certificate_arn" {
 output "common_zone_nameservers" {
   value = module.dns.common_zone_nameservers
 }
+
+output "zone_id" {
+  value = module.dns.zone_id
+}
