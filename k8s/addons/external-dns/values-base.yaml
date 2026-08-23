@@ -8,4 +8,3 @@ serviceAccount:
   name: external-dns
 extraArgs:
   - --aws-zone-type=public
-  - --ingress-class=alb
