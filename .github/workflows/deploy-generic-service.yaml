@@ -94,7 +94,7 @@ jobs:
       DEPLOY_ENV: ${{ needs.resolve_env.outputs.environment }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
       NAMESPACE: ${{ vars.NAMESPACE }}
       ECR_REGISTRY_URL: ${{ vars.ECR_REGISTRY_URL }}
 
