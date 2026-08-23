@@ -13,8 +13,3 @@ spec:
       {{- end }}
   certificateARNs:
     - {{ .Values.alb.certificateArn | quote }}
-  tags:
-    {{- range $k, $v := .Values.alb.tags }}
-    - key: {{ $k | quote }}
-      value: {{ $v | quote }}
-    {{- end }}

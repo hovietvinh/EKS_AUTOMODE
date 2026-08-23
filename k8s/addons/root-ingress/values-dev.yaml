@@ -4,6 +4,3 @@ alb:
   certificateArn: "${CERTIFICATE_ARN}"
   subnetIds: "${SUBNET_IDS}"
   sslPolicy: ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09
-  tags:
-    Environment: dev
-    Project: common.dataassess.uk
