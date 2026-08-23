@@ -4,8 +4,8 @@ WORKDIR /app
 
 COPY services/svc1/server.js ./server.js
 
-ENV PORT=3000
-EXPOSE 3000
+ENV PORT=8000
+EXPOSE 8000
 
 USER node
 

@@ -1,4 +1,4 @@
-nameOverride: svc1
+nameOverride: svc2
 image:
   repository: "661487690146.dkr.ecr.ap-southeast-1.amazonaws.com/test-dev-svc2"
   tag: ""
