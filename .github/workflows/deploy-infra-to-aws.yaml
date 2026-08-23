@@ -197,12 +197,12 @@ jobs:
           echo "EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name)" >> "$GITHUB_ENV"
 
       - name: Get ACM ARN
-        working-directory: ./infrastructure/env/${{ env.DEPLOY_ENV }}
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
         run: |
           ACM_ARN=$(terraform output -raw certificate_arn)
           echo "CERTIFICATE_ARN=$ACM_ARN" >> $GITHUB_ENV
       - name: Get Subnet IDs
-        working-directory: ./infrastructure/env/${{ env.DEPLOY_ENV }}
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
         run: |
           SUBNET_IDS=$(terraform output -json public_subnet_ids | jq -r 'join(",")')
           echo "SUBNET_IDS=$SUBNET_IDS" >> $GITHUB_ENV
