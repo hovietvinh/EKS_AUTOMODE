@@ -98,10 +98,6 @@ jobs:
       - name: Empty Route53 Hosted Zone (xoá record do external-dns tự tạo)
         working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
         run: |
-          # external-dns tự tạo A/AAAA/TXT record ngoài Terraform state.
-          # Route53 chặn xoá hosted zone nếu còn record khác ngoài NS/SOA gốc,
-          # nên phải dọn sạch tay trước khi terraform destroy xoá zone.
-
           DOMAIN_NAME=$(grep -E '^\s*domain_name\s*=' terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/')
 
           if [ -z "$DOMAIN_NAME" ]; then
@@ -122,7 +118,6 @@ jobs:
           ZONE_ID="${ZONE_ID#/hostedzone/}"
           echo "Zone ID: $ZONE_ID"
 
-          # Lấy toàn bộ record, loại trừ NS/SOA ở apex (2 record gốc Terraform tự quản)
           aws route53 list-resource-record-sets --hosted-zone-id "$ZONE_ID" \
             --query "ResourceRecordSets[?!(Type=='NS' && Name=='${DOMAIN_NAME}.') && !(Type=='SOA' && Name=='${DOMAIN_NAME}.')]" \
             --output json > extra_records.json
@@ -147,6 +142,36 @@ jobs:
           else
             echo "Zone đã sạch, không có record thừa."
           fi
+
+      - name: Empty ECR Repositories (Xoá toàn bộ image trong ECR)
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          echo "Tìm các ECR repository thuộc môi trường: ${{ env.DEPLOY_ENV }}"
+          
+          REPOS=$(aws ecr describe-repositories --query "repositories[?contains(repositoryName, '${{ env.DEPLOY_ENV }}')].repositoryName" --output text)
+          
+          if [ -z "$REPOS" ]; then
+            echo "Không tìm thấy ECR repository nào cho môi trường ${{ env.DEPLOY_ENV }}."
+            exit 0
+          fi
+
+          for REPO in $REPOS; do
+            echo "----------------------------------------"
+            echo "Đang xử lý ECR repository: $REPO"
+            
+            IMAGE_IDS=$(aws ecr list-images --repository-name "$REPO" --query 'imageIds[*]' --output json)
+            COUNT=$(echo "$IMAGE_IDS" | jq 'length')
+            echo "Số lượng image trong $REPO: $COUNT"
+            
+            if [ "$COUNT" -gt 0 ]; then
+              echo "Đang xoá toàn bộ image trong $REPO..."
+              aws ecr batch-delete-image --repository-name "$REPO" --image-ids "$IMAGE_IDS"
+              echo "Đã xoá sạch image của $REPO."
+            else
+              echo "Repository $REPO đã trống."
+            fi
+          done
+          echo "Đã hoàn tất dọn dẹp các ECR repositories!"
 
       - name: Terraform Destroy
         working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
@@ -173,7 +198,6 @@ jobs:
           BUCKET_NAME="${{ needs.resolve_bucket.outputs.bucket_name }}"
 
           echo "Emptying all object versions in bucket: $BUCKET_NAME"
-          # Bucket có versioning bật -> phải xoá hết version + delete marker trước khi xoá bucket được
           aws s3api list-object-versions --bucket "$BUCKET_NAME" \
             --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json > versions.json
           if [ "$(cat versions.json | jq '.Objects | length')" -gt 0 ]; then
