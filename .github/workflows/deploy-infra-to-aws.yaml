@@ -1,0 +1,222 @@
+name: Deploy AWS Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod-blue
+      run_apply:
+        description: 'Apply after plan'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      run_install_addons:
+        description: 'Install cluster addons after apply'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: 1.15.2
+  DEPLOY_ENV: ${{ github.event.inputs.environment || 'dev' }}
+
+jobs:
+  setup:
+    name: Resolve Backend Config
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    outputs:
+      bucket_name: ${{ steps.resolve.outputs.bucket_name }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d0834ad3a60a024346910e522a81b0002bd37fea # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gh-infra-setup
+
+      - name: Resolve bucket name
+        id: resolve
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="test-${{ env.DEPLOY_ENV }}-terraform-state-${ACCOUNT_ID}"
+          echo "bucket_name=${BUCKET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Resolved bucket: ${BUCKET_NAME}"
+
+      - name: Ensure S3 backend bucket exists
+        run: |
+          BUCKET_NAME="${{ steps.resolve.outputs.bucket_name }}"
+          AWS_REGION="${{ vars.AWS_REGION }}"
+
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            echo "S3 bucket already exists: $BUCKET_NAME"
+          else
+            echo "Creating S3 bucket: $BUCKET_NAME"
+            aws s3api create-bucket \
+              --bucket "$BUCKET_NAME" \
+              --region "$AWS_REGION" \
+              --create-bucket-configuration LocationConstraint="$AWS_REGION"
+
+            aws s3api put-bucket-versioning \
+              --bucket "$BUCKET_NAME" \
+              --versioning-configuration Status=Enabled
+
+            aws s3api put-bucket-encryption \
+              --bucket "$BUCKET_NAME" \
+              --server-side-encryption-configuration '{
+                "Rules": [{
+                  "ApplyServerSideEncryptionByDefault": {
+                    "SSEAlgorithm": "AES256"
+                  },
+                  "BucketKeyEnabled": true
+                }]
+              }'
+            echo "S3 bucket created successfully"
+          fi
+
+          echo "Ensuring SSL-only policy on bucket: $BUCKET_NAME"
+          aws s3api put-bucket-policy \
+            --bucket "$BUCKET_NAME" \
+            --policy '{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "DenyInsecureTransport",
+                  "Effect": "Deny",
+                  "Principal": "*",
+                  "Action": "s3:*",
+                  "Resource": [
+                    "arn:aws:s3:::'"$BUCKET_NAME"'",
+                    "arn:aws:s3:::'"$BUCKET_NAME"'/*"
+                  ],
+                  "Condition": {
+                    "Bool": {
+                      "aws:SecureTransport": "false"
+                    }
+                  }
+                }
+              ]
+            }'
+
+  plan:
+    name: Provision Common Resource to AWS
+    runs-on: ubuntu-latest
+    needs: setup
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d0834ad3a60a024346910e522a81b0002bd37fea # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gh-infra
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform init -backend-config="bucket=${{ needs.setup.outputs.bucket_name }}"
+
+      - name: Terraform Validate
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform validate
+          echo "Terraform configuration validated successfully!"
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform plan -var-file="terraform.tfvars" -out=tfplan -input=false
+          echo "Terraform plan created successfully!"
+
+      - name: Terraform Apply
+        if: github.event.inputs.run_apply == 'yes'
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform apply -auto-approve tfplan
+          echo "Terraform apply completed successfully!"
+
+  install_addons:
+    name: Install Cluster Addons
+    runs-on: ubuntu-latest
+    needs: [setup, plan]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    if: needs.plan.result == 'success' && github.event.inputs.run_apply == 'yes' && github.event.inputs.run_install_addons == 'yes'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d0834ad3a60a024346910e522a81b0002bd37fea # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gh-infra-addons
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform init -backend-config="bucket=${{ needs.setup.outputs.bucket_name }}"
+
+      - name: Get cluster info
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          echo "EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name)" >> "$GITHUB_ENV"
+
+      - name: Get ACM ARN
+        working-directory: ./infrastructure/environments/${{ env.DEPLOY_ENV }}
+        run: |
+          ACM_ARN=$(terraform output -raw certificate_arn)
+          echo "CERTIFICATE_ARN=$ACM_ARN" >> $GITHUB_ENV
+      - name: Get Subnet IDs
+        working-directory: ./infrastructure/environments/${{ env.DEPLOY_ENV }}
+        run: |
+          SUBNET_IDS=$(terraform output -json public_subnet_ids | jq -r 'join(",")')
+          echo "SUBNET_IDS=$SUBNET_IDS" >> $GITHUB_ENV
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${{ vars.AWS_REGION }}"
+
+      - name: Install addons
+        working-directory: ./scripts
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          CERTIFICATE_ARN: ${{ env.CERTIFICATE_ARN }}
+          SUBNET_IDS: ${{ env.SUBNET_IDS }}
+        run: |
+          chmod +x helm-install-base.sh
+          ./helm-install-base.sh "${{ env.DEPLOY_ENV }}"

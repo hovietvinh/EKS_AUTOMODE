@@ -1,0 +1,17 @@
+apiVersion: eks.amazonaws.com/v1
+kind: IngressClassParams
+metadata:
+  name: {{ .Values.alb.ingressClassName | default "alb" }}
+spec:
+  scheme: {{ .Values.alb.scheme | default "internet-facing" }}
+  subnets:
+    ids:
+      {{- range splitList "," .Values.alb.subnetIds }}
+      - {{ . }}
+      {{- end }}
+  certificateARNs:
+    - {{ .Values.alb.certificateArn | quote }}
+  tags:
+    {{- range $k, $v := .Values.alb.tags }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}

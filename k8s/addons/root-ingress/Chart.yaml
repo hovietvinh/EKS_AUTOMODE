@@ -1,0 +1,6 @@
+apiVersion: v2
+name: root-ingress
+description: Root ALB Ingress that bridges AWS ALB (EKS Auto Mode) to ingress-nginx-controller
+type: application
+version: 0.1.0
+appVersion: "1.0"

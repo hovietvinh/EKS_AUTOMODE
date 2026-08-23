@@ -1,0 +1,191 @@
+name: Destroy AWS Infrastructure
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment to destroy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod-blue
+      confirm_destroy:
+        description: 'Gõ chính xác "destroy" để xác nhận'
+        required: true
+        type: string
+      delete_state_bucket:
+        description: 'Xoá luôn S3 bucket chứa terraform state sau khi destroy xong?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: 1.15.2
+  DEPLOY_ENV: ${{ github.event.inputs.environment }}
+
+jobs:
+  guard:
+    name: Guard - Confirm Destroy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation input
+        run: |
+          if [ "${{ github.event.inputs.confirm_destroy }}" != "destroy" ]; then
+            echo "::error::Bạn phải gõ đúng chữ 'destroy' để xác nhận. Huỷ workflow."
+            exit 1
+          fi
+          echo "Confirmed. Proceeding with destroy for env: ${{ env.DEPLOY_ENV }}"
+
+  resolve_bucket:
+    name: Resolve Backend Config
+    runs-on: ubuntu-latest
+    needs: guard
+    environment: ${{ github.event.inputs.environment }}
+    outputs:
+      bucket_name: ${{ steps.resolve.outputs.bucket_name }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d0834ad3a60a024346910e522a81b0002bd37fea # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gh-infra-destroy-setup
+
+      - name: Resolve bucket name
+        id: resolve
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="test-${{ env.DEPLOY_ENV }}-terraform-state-${ACCOUNT_ID}"
+          echo "bucket_name=${BUCKET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Resolved bucket: ${BUCKET_NAME}"
+
+  destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    needs: resolve_bucket
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d0834ad3a60a024346910e522a81b0002bd37fea # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gh-infra-destroy
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform init -backend-config="bucket=${{ needs.resolve_bucket.outputs.bucket_name }}"
+
+      - name: Empty Route53 Hosted Zone (xoá record do external-dns tự tạo)
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          # external-dns tự tạo A/AAAA/TXT record ngoài Terraform state.
+          # Route53 chặn xoá hosted zone nếu còn record khác ngoài NS/SOA gốc,
+          # nên phải dọn sạch tay trước khi terraform destroy xoá zone.
+
+          DOMAIN_NAME=$(grep -E '^\s*domain_name\s*=' terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/')
+
+          if [ -z "$DOMAIN_NAME" ]; then
+            echo "Không tìm thấy domain_name trong terraform.tfvars, bỏ qua bước dọn Route53."
+            exit 0
+          fi
+
+          echo "Tìm hosted zone cho domain: $DOMAIN_NAME"
+          ZONE_ID=$(aws route53 list-hosted-zones-by-name \
+            --dns-name "$DOMAIN_NAME" \
+            --query "HostedZones[?Name=='${DOMAIN_NAME}.'].Id | [0]" \
+            --output text)
+
+          if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" == "None" ]; then
+            echo "Không tìm thấy hosted zone cho $DOMAIN_NAME, bỏ qua."
+            exit 0
+          fi
+          ZONE_ID="${ZONE_ID#/hostedzone/}"
+          echo "Zone ID: $ZONE_ID"
+
+          # Lấy toàn bộ record, loại trừ NS/SOA ở apex (2 record gốc Terraform tự quản)
+          aws route53 list-resource-record-sets --hosted-zone-id "$ZONE_ID" \
+            --query "ResourceRecordSets[?!(Type=='NS' && Name=='${DOMAIN_NAME}.') && !(Type=='SOA' && Name=='${DOMAIN_NAME}.')]" \
+            --output json > extra_records.json
+
+          COUNT=$(jq 'length' extra_records.json)
+          echo "Số record thừa cần xoá: $COUNT"
+
+          if [ "$COUNT" -gt 0 ]; then
+            jq -c '.[]' extra_records.json | while read -r record; do
+              NAME=$(echo "$record" | jq -r '.Name')
+              TYPE=$(echo "$record" | jq -r '.Type')
+              echo "Xoá record: $NAME ($TYPE)"
+
+              CHANGE_BATCH=$(jq -n --argjson rec "$record" \
+                '{Changes: [{Action: "DELETE", ResourceRecordSet: $rec}]}')
+
+              aws route53 change-resource-record-sets \
+                --hosted-zone-id "$ZONE_ID" \
+                --change-batch "$CHANGE_BATCH"
+            done
+            echo "Đã dọn sạch record thừa trong zone."
+          else
+            echo "Zone đã sạch, không có record thừa."
+          fi
+
+      - name: Terraform Destroy
+        working-directory: ./terraform/env/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform destroy -var-file="terraform.tfvars" -auto-approve
+          echo "Terraform destroy completed successfully!"
+
+  cleanup_state_bucket:
+    name: Delete S3 Backend Bucket
+    runs-on: ubuntu-latest
+    needs: [resolve_bucket, destroy]
+    environment: ${{ github.event.inputs.environment }}
+    if: github.event.inputs.delete_state_bucket == 'yes'
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d0834ad3a60a024346910e522a81b0002bd37fea # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gh-infra-destroy-cleanup
+
+      - name: Empty and delete state bucket
+        run: |
+          BUCKET_NAME="${{ needs.resolve_bucket.outputs.bucket_name }}"
+
+          echo "Emptying all object versions in bucket: $BUCKET_NAME"
+          # Bucket có versioning bật -> phải xoá hết version + delete marker trước khi xoá bucket được
+          aws s3api list-object-versions --bucket "$BUCKET_NAME" \
+            --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json > versions.json
+          if [ "$(cat versions.json | jq '.Objects | length')" -gt 0 ]; then
+            aws s3api delete-objects --bucket "$BUCKET_NAME" --delete file://versions.json
+          fi
+
+          aws s3api list-object-versions --bucket "$BUCKET_NAME" \
+            --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' --output json > markers.json
+          if [ "$(cat markers.json | jq '.Objects | length')" -gt 0 ]; then
+            aws s3api delete-objects --bucket "$BUCKET_NAME" --delete file://markers.json
+          fi
+
+          echo "Deleting bucket: $BUCKET_NAME"
+          aws s3api delete-bucket --bucket "$BUCKET_NAME" --region "${{ vars.AWS_REGION }}"
+          echo "S3 backend bucket deleted successfully!"

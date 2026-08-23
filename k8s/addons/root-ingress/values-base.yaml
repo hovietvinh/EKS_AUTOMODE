@@ -1,0 +1,13 @@
+name: root-alb-ingress
+namespace: ingress-nginx
+
+nginxServiceName: ingress-nginx-controller
+nginxServicePort: 80
+
+alb:
+  groupName: alb
+  scheme: internet-facing
+  healthcheckPath: /healthz
+  listenPorts: '[{"HTTP": 80}, {"HTTPS": 443}]'
+  sslRedirect: true
+  ingressClassName: alb

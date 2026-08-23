@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.name | default "root-alb-ingress" }}
+  namespace: {{ .Values.namespace }}
+  annotations:
+    alb.ingress.kubernetes.io/group.name: {{ .Values.alb.groupName }}
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.alb.healthcheckPath | default "/healthz" }}
+    alb.ingress.kubernetes.io/listen-ports: {{ .Values.alb.listenPorts | quote }}
+    alb.ingress.kubernetes.io/ssl-policy: {{ .Values.alb.sslPolicy | quote }}
+    {{- if .Values.alb.sslRedirect }}
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    {{- end }}
+    external-dns.alpha.kubernetes.io/hostname: {{ .Values.host }}
+spec:
+  ingressClassName: {{ .Values.alb.ingressClassName | default "alb" }}
+  rules:
+    - host: {{ .Values.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.nginxServiceName | default "ingress-nginx-controller" }}
+                port:
+                  number: {{ .Values.nginxServicePort | default 80 }}

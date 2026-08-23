@@ -1,0 +1,15 @@
+nameOverride: svc1
+image:
+  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/svc1"
+  tag: ""
+
+service:
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  hosts:
+    - host: common.dataassess.uk
+      paths:
+        - path: /svc2
+        - path: /svc2and3
