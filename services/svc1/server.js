@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
   }
 
   res.writeHead(404);
-  res.end(JSON.stringify({ error: "not found" }));
+  res.end(JSON.stringify({ error: "not found1" }));
 });
 
 server.listen(PORT, () => {
