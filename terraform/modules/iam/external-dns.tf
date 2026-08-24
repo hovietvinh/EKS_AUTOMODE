@@ -18,7 +18,7 @@ data "aws_iam_policy_document" "external_dns_permissions" {
   statement {
     effect    = "Allow"
     actions   = ["route53:ChangeResourceRecordSets"]
-    resources = ["arn:aws:route53:::hostedzone/*"] // update later
+    resources = ["arn:aws:route53:::hostedzone/${var.zone_id}"]
   }
 
   statement {

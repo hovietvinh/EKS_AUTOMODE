@@ -4,6 +4,7 @@ metadata:
   name: {{ .Values.alb.ingressClassName | default "alb" }}
 spec:
   scheme: {{ .Values.alb.scheme | default "internet-facing" }}
+  ipAddressType: {{ .Values.alb.ipAddressType | default "ipv4" }}
   group:
     name: {{ .Values.alb.groupName }}
   subnets:

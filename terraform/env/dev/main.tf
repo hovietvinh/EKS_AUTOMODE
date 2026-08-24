@@ -9,6 +9,7 @@ module "iam" {
   project_name = var.project_name
   env = var.env
   domain_name = var.domain_name
+  zone_id = module.dns.zone_id
 }
 
 module "eks" {
