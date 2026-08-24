@@ -7,9 +7,9 @@
 #   value = var.public_subnet_ids
 # }
 
-# output "certificate_arn" {
-#   value = module.acm.certificate_arn
-# }
+output "certificate_arn" {
+  value = module.acm.certificate_arn
+}
 output "common_zone_nameservers" {
   value = module.dns.common_zone_nameservers
 }
