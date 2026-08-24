@@ -8,4 +8,4 @@ extraArgs:
   - --aws-zone-type=public
   - --ingress-class=alb
   - --zone-id-filter=${ZONE_ID}
-  - --aws-evaluate-target-health=true
+  - --aws-evaluate-target-health
